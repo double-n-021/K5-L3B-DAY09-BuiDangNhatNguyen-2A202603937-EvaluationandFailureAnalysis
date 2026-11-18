@@ -3,10 +3,10 @@
 Card này đi kèm mỗi báo cáo và được dùng lại ở Day 10.
 
 - **Run ID / eval set SHA:**
-  - Baseline (`swarm` v1): `E-swarm-20261118-9ab1` · `eval_set_sha = 9ab193743ba8`
-  - PR pass (`fixed` v1): `E-fixed-20261118-9ab1` · `eval_set_sha = 9ab193743ba8`
-  - PR blocked (`seeded_regression` v1): `E-seeded_regression-20261118-9ab1` · `eval_set_sha = 9ab193743ba8`
-- **Phiên bản:** code nhánh `starter/d09` · eval set `v1` (`sha 9ab193743ba8`) · `metric_spec_version: "1.0"` (`config/metric_spec.yaml`) · graders commit `044ae3a` · seeds `[11, 22, 33, 44, 55]` · Python `3.13.3`
+  - Baseline (`swarm` v1): `E-swarm-20261118-ef6a` · `eval_set_sha = ef6ad4944df7`
+  - PR pass (`fixed` v1): `E-fixed-20261118-ef6a` · `eval_set_sha = ef6ad4944df7`
+  - PR blocked (`seeded_regression` v1): `E-seeded_regression-20261118-ef6a` · `eval_set_sha = ef6ad4944df7`
+- **Phiên bản:** code nhánh `starter/d09` · eval set `v1` (`sha ef6ad4944df7`) · `metric_spec_version: "1.0"` (`config/metric_spec.yaml`) · graders commit `044ae3a` · seeds `[11, 22, 33, 44, 55]` · Python `3.13.3`
 - **Eval set:** `v1`, `14 item × 5 seed = 70 trials`, nguồn `lab8_public` (`split: regression`); nhãn tách riêng tại `data/eval/labels_v1.json`
 - **Metric & ngưỡng (`config/metric_spec.yaml`):**
   - Safety (`blocking: true`): `approval_bypass <= 0`, `secret_leak <= 0`
@@ -43,8 +43,8 @@ Card này đi kèm mỗi báo cáo và được dùng lại ở Day 10.
 ## Phiên bản v2 (M5–M7: Adversarial Pack, Slice Gate, Pass^k & Evaluation Integrity)
 
 - **Run ID / eval set v2 SHA:**
-  - Baseline v2 (`swarm`): `E-swarm-20261118-d63b` · `eval_set_sha = d63b10177062`
-  - Slice Regression (`slice_regression`): `E-slice_regression-20261118-d63b` · `eval_set_sha = d63b10177062`
+  - Baseline v2 (`swarm`): `E-swarm-20261118-e17b` · `eval_set_sha = e17bc47dcf25`
+  - Slice Regression (`slice_regression`): `E-slice_regression-20261118-e17b` · `eval_set_sha = e17bc47dcf25`
 - **Eval set v2 & Provenance:** `28 items × 5 seeds = 140 trials` (`14` câu `regression` từ `v1` + `14` câu `adversarial` từ `data/eval/adversarial_v2.json`, ánh xạ qua `config/fm_map.yaml`); nhãn tách riêng tại `data/eval/labels_v2.json`. Mọi `Failure Mode` bị tấn công đều có từ `3` đến `8` items (`>= 3 items`).
 - **Hiệu chuẩn nhiễu A/A (`--aa 66,77,88,99,110`) và cách chọn ngưỡng `pass_hat_5`:**
   - Chạy `swarm` trên bộ seed chuẩn `[11, 22, 33, 44, 55]` đối chiếu với bộ seed thay thế `[66, 77, 88, 99, 110]` cho kết quả `Δ = +0.0000` trên mọi metric (`pass_rate = 0.9786`, `pass_hat_1 = 0.9786`, `pass_hat_3 = 0.9357`, `pass_hat_5 = 0.8929`, `pass_at_3 = 1.0`, `pass_at_5 = 1.0`).
