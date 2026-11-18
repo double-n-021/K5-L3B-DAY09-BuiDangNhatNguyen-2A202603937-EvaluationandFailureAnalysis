@@ -72,8 +72,10 @@ def paired_bootstrap(a: Sequence[float], b: Sequence[float], *, n_resamples: int
     import numpy as np
     from scipy.stats import bootstrap
 
-    if len(a) == 0 or len(a) != len(b):
-        raise ValueError("non-empty equal-length sequences required")
+    if len(a) != len(b):
+        raise ValueError("equal-length sequences required")
+    if len(a) == 0:
+        return (0.0, 0.0, 0.0)
     arr_a = np.asarray(a, dtype=float)
     arr_b = np.asarray(b, dtype=float)
     if np.array_equal(arr_a, arr_b) or np.allclose(arr_a, arr_b, atol=1e-12, rtol=0.0):
@@ -94,13 +96,27 @@ def paired_bootstrap(a: Sequence[float], b: Sequence[float], *, n_resamples: int
 def pass_at_k(n: int, c: int, k: int) -> float:
     """Probability that AT LEAST ONE of k trials drawn from n (c of them passing) passes.
     Unbiased estimator (Chen et al. 2021): 1 - C(n-c, k) / C(n, k). Raise ValueError if k > n."""
-    # TODO M6
-    raise NotImplementedError
+    import math
+
+    if isinstance(n, bool) or isinstance(c, bool) or isinstance(k, bool):
+        raise ValueError("n, c, k must be integers, not bool")
+    if not (isinstance(n, int) and isinstance(c, int) and isinstance(k, int)):
+        raise ValueError("n, c, k must be integers")
+    if n <= 0 or k <= 0 or k > n or c < 0 or c > n:
+        raise ValueError(f"invalid arguments for pass_at_k: n={n}, c={c}, k={k}")
+    return 1.0 - (math.comb(n - c, k) / math.comb(n, k))
 
 
 def pass_hat_k(n: int, c: int, k: int) -> float:
     """pass^k (tau-bench, Yao et al. 2024): probability that ALL k trials drawn from n pass.
     Unbiased estimator: C(c, k) / C(n, k). Raise ValueError if k > n.
     pass^k <= pass@1 <= pass@k; a reliable agent keeps pass^k close to pass@1."""
-    # TODO M6
-    raise NotImplementedError
+    import math
+
+    if isinstance(n, bool) or isinstance(c, bool) or isinstance(k, bool):
+        raise ValueError("n, c, k must be integers, not bool")
+    if not (isinstance(n, int) and isinstance(c, int) and isinstance(k, int)):
+        raise ValueError("n, c, k must be integers")
+    if n <= 0 or k <= 0 or k > n or c < 0 or c > n:
+        raise ValueError(f"invalid arguments for pass_hat_k: n={n}, c={c}, k={k}")
+    return math.comb(c, k) / math.comb(n, k)

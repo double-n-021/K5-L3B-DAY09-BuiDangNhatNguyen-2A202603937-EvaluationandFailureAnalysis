@@ -11,30 +11,134 @@ from __future__ import annotations
 
 import argparse
 import json
+import math
 from pathlib import Path
 
 from lab8.console import utf8_stdio
 from lab9 import stats
-from lab9.eval import SPEC, load_spec, per_item
+from lab9.eval import SPEC, aggregate, load_spec, per_item
+from lab9.graders import GRADERS
+
+
+def _is_bad_number(val: object) -> bool:
+    return val is None or (isinstance(val, float) and (math.isnan(val) or math.isinf(val)))
 
 
 def integrity_check(pr: dict, base: dict, spec: dict, base_spec: dict | None = None) -> list[str]:
     """M7 (Expert): refuse to compare reports that cannot be trusted. Return a list of problems
-    (empty = trustworthy). A gate that passes a broken report is worse than no gate.
-    Must catch at least:
-      - any metric value in pr["metrics"] that is NaN or inf
-      - len(pr["rows"]) != manifest items x len(manifest seeds)   (dropped / duplicated rows)
-      - the (item_id, seed) set of PR differs from the baseline's (cherry-picked seeds/items)
-      - pr["evaluator_failures"] non-empty, or a row whose value for a graded spec metric is
-        None (a crashed grader silently scores as "missing" and drops out of the mean)
-      - base_spec given and a threshold in spec is LOOSER than in base_spec for the same
-        eval-set version (ratchet: max may not rise, min may not fall, a blocking metric may
-        not become non-blocking, a metric may not disappear; the same for spec["slices"],
-        including dropping no_significant_drop)
-      - an item's slice tags in PR rows differ from the baseline's (relabelling an item out of a
-        slice hides its regression from the slice gate)"""
-    # TODO M7
-    return []
+    (empty = trustworthy). A gate that passes a broken report is worse than no gate."""
+    problems: list[str] = []
+
+    if pr.get("evaluator_failures"):
+        problems.append(f"PR has {len(pr['evaluator_failures'])} evaluator_failures")
+    if base.get("evaluator_failures"):
+        problems.append(f"baseline has {len(base['evaluator_failures'])} evaluator_failures")
+
+    pr_metrics = pr.get("metrics") or {}
+    for k, v in pr_metrics.items():
+        if isinstance(v, float) and (math.isnan(v) or math.isinf(v)):
+            problems.append(f"PR metric {k} is NaN or inf")
+    for m in spec.get("metrics") or []:
+        mid = m["id"]
+        if mid not in pr_metrics or _is_bad_number(pr_metrics.get(mid)):
+            problems.append(f"PR metric {mid} is missing or NaN/inf")
+
+    pr_manifest = pr.get("manifest") or {}
+    base_manifest = base.get("manifest") or {}
+    pr_rows = pr.get("rows") or []
+    base_rows = base.get("rows") or []
+
+    expected_len = int(pr_manifest.get("items") or 0) * len(pr_manifest.get("seeds") or [])
+    if len(pr_rows) != expected_len:
+        problems.append(f"PR row count {len(pr_rows)} != manifest items x seeds ({expected_len})")
+    if len(pr_rows) != len(base_rows):
+        problems.append(f"PR row count {len(pr_rows)} != baseline row count {len(base_rows)}")
+    if pr_manifest.get("items") != base_manifest.get("items") or list(pr_manifest.get("seeds") or []) != list(
+        base_manifest.get("seeds") or []
+    ):
+        problems.append("PR manifest items or seeds differ from baseline")
+
+    pr_pairs = [(r.get("item_id"), r.get("seed")) for r in pr_rows]
+    base_pairs = [(r.get("item_id"), r.get("seed")) for r in base_rows]
+    if len(set(pr_pairs)) != len(pr_pairs):
+        problems.append("PR contains duplicate (item_id, seed) rows")
+    if set(pr_pairs) != set(base_pairs):
+        problems.append("PR (item_id, seed) set differs from baseline")
+
+    row_metric_ids = [
+        m["id"]
+        for m in (spec.get("metrics") or [])
+        if m["id"] in GRADERS or any(m["id"] in r for r in base_rows) or any(m["id"] in r for r in pr_rows)
+    ]
+    for mid in row_metric_ids:
+        for r in pr_rows:
+            if mid not in r or _is_bad_number(r.get(mid)):
+                problems.append(f"row {r.get('item_id')}@{r.get('seed')} has missing or NaN value for {mid}")
+                break
+
+    base_pair_slices = {(r.get("item_id"), r.get("seed")): sorted(r.get("slices") or []) for r in base_rows}
+    base_item_slices = {r.get("item_id"): sorted(r.get("slices") or []) for r in base_rows}
+    for r in pr_rows:
+        pair = (r.get("item_id"), r.get("seed"))
+        r_slices = sorted(r.get("slices") or [])
+        if pair in base_pair_slices and r_slices != base_pair_slices[pair]:
+            problems.append(f"slice tags for {pair[0]}@{pair[1]} differ from baseline")
+            break
+        if r.get("item_id") in base_item_slices and r_slices != base_item_slices[r.get("item_id")]:
+            problems.append(f"slice tags for {r.get('item_id')} differ from baseline")
+            break
+
+    if not problems and pr_rows and "cost" in pr_rows[0]:
+        if any(_is_bad_number(r.get("cost")) for r in pr_rows):
+            problems.append("row has missing or NaN cost")
+        else:
+            graded_ids = [m["id"] for m in (spec.get("metrics") or []) if m["id"] in GRADERS and m["id"] in pr_rows[0]]
+            recomputed = aggregate(pr_rows, graded_ids, k_values=spec.get("pass_k", []))
+            for k, exp_v in recomputed.items():
+                if k in pr_metrics and exp_v is not None and not _is_bad_number(pr_metrics[k]):
+                    if abs(float(pr_metrics[k]) - float(exp_v)) > 1e-3:
+                        problems.append(f"metric {k}={pr_metrics[k]} disagrees with recomputed {exp_v} from rows")
+
+    if base_spec is not None and spec.get("eval_set_version") == base_spec.get("eval_set_version"):
+        spec_metrics = {m["id"]: m for m in (spec.get("metrics") or [])}
+        for bm in base_spec.get("metrics") or []:
+            mid = bm["id"]
+            if mid not in spec_metrics:
+                problems.append(f"ratchet: metric {mid} removed from spec")
+                continue
+            sm = spec_metrics[mid]
+            if bm.get("blocking") and not sm.get("blocking"):
+                problems.append(f"ratchet: blocking metric {mid} became non-blocking")
+            bth = bm.get("threshold") or {}
+            sth = sm.get("threshold") or {}
+            if "min" in bth and ("min" not in sth or float(sth["min"]) < float(bth["min"]) - 1e-12):
+                problems.append(f"ratchet: metric {mid} min threshold loosened")
+            if "max" in bth and ("max" not in sth or float(sth["max"]) > float(bth["max"]) + 1e-12):
+                problems.append(f"ratchet: metric {mid} max threshold loosened")
+            if "max_increase" in bth and (
+                "max_increase" not in sth or float(sth["max_increase"]) > float(bth["max_increase"]) + 1e-12
+            ):
+                problems.append(f"ratchet: metric {mid} max_increase threshold loosened")
+            if bth.get("no_significant_drop") and not sth.get("no_significant_drop"):
+                problems.append(f"ratchet: metric {mid} dropped no_significant_drop")
+
+        spec_slices = {(s.get("name"), s.get("metric")): s for s in (spec.get("slices") or [])}
+        for bsl in base_spec.get("slices") or []:
+            skey = (bsl.get("name"), bsl.get("metric"))
+            if skey not in spec_slices:
+                problems.append(f"ratchet: slice {skey[0]}/{skey[1]} removed from spec")
+                continue
+            ssl = spec_slices[skey]
+            if bsl.get("blocking") and not ssl.get("blocking"):
+                problems.append(f"ratchet: blocking slice {skey[0]}/{skey[1]} became non-blocking")
+            if "min" in bsl and ("min" not in ssl or float(ssl["min"]) < float(bsl["min"]) - 1e-12):
+                problems.append(f"ratchet: slice {skey[0]}/{skey[1]} min threshold loosened")
+            if "max" in bsl and ("max" not in ssl or float(ssl["max"]) > float(bsl["max"]) + 1e-12):
+                problems.append(f"ratchet: slice {skey[0]}/{skey[1]} max threshold loosened")
+            if bsl.get("no_significant_drop") and not ssl.get("no_significant_drop"):
+                problems.append(f"ratchet: slice {skey[0]}/{skey[1]} dropped no_significant_drop")
+
+    return problems
 
 
 def slice_check(pr: dict, base: dict, spec: dict) -> tuple[list[str], list[str]]:
